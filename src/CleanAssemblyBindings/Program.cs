@@ -17,7 +17,7 @@ var document = new XmlDocument();
 document.Load(configPath);
 
 var bindings = new Dictionary<string, AssemblyBinding>();
-var nodesToRemove = new List<XmlElement>();
+var bindingsToRemove = new List<AssemblyBinding>();
 var assemblyBindingElement = document.GetElementsByTagName("assemblyBinding")[0];
 
 foreach (XmlElement dependentAssemblyElement in assemblyBindingElement.ChildNodes)
@@ -28,7 +28,7 @@ foreach (XmlElement dependentAssemblyElement in assemblyBindingElement.ChildNode
         var binding = new AssemblyBinding
         {
             Name = assemblyIdentityElement.GetAttribute("name"),
-            PublicKeyToken = assemblyIdentityElement.GetAttribute("publicKeyToken").ToLower(),
+            PublicKeyToken = assemblyIdentityElement.GetAttribute("publicKeyToken"),
             NewVersion = Version.Parse(bindingRedirectElement.GetAttribute("newVersion")),
             XmlElement = dependentAssemblyElement
         };
@@ -36,26 +36,39 @@ foreach (XmlElement dependentAssemblyElement in assemblyBindingElement.ChildNode
         if (!bindings.TryAdd(binding.Name, binding))
         {
             var existingBinding = bindings[binding.Name];
-            if (existingBinding.NewVersion < binding.NewVersion)
+
+            // If the public key token is in upper case then Visual Studio will keep readding bindings for the same library
+            if (existingBinding.NewVersion < binding.NewVersion || existingBinding.PublicKeyToken == existingBinding.PublicKeyToken.ToUpperInvariant())
             {
                 bindings[binding.Name] = binding;
-                nodesToRemove.Add(existingBinding.XmlElement);
+                bindingsToRemove.Add(existingBinding);
             }
             else
             {
-                nodesToRemove.Add(binding.XmlElement);
+                bindingsToRemove.Add(binding);
             }
         }
     }
 }
 
-foreach (var element in nodesToRemove)
+if (bindingsToRemove.Count == 0)
 {
-    assemblyBindingElement.RemoveChild(element);
+    Console.WriteLine($"No duplicate bindings found.");
 }
+else
+{
+    foreach (var binding in bindingsToRemove)
+    {
+        assemblyBindingElement.RemoveChild(binding.XmlElement);
+    }
 
-document.Save(configPath);
-Console.WriteLine($"Removed {nodesToRemove.Count} duplicate bindings");
+    document.Save(configPath);
+    Console.WriteLine($"Removed {bindingsToRemove.Count} duplicate bindings:");
+    foreach (var binding in bindingsToRemove)
+    {
+        Console.WriteLine($"- {binding.Name} {binding.NewVersion}");
+    }
+}
 
 class AssemblyBinding
 {
